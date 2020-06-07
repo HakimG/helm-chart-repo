@@ -1,0 +1,216 @@
+{{- if not .Values.Master.CustomConfigMap }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "jenkins.fullname" . }}
+data:
+  config.xml: |-
+    <?xml version='1.0' encoding='UTF-8'?>
+    <hudson>
+      <disabledAdministrativeMonitors/>
+      <version>{{ .Values.Master.ImageTag }}</version>
+      <numExecutors>0</numExecutors>
+      <mode>NORMAL</mode>
+      <useSecurity>{{ .Values.Master.UseSecurity }}</useSecurity>
+      <authorizationStrategy class="{{ .Values.Master.AuthorizationStrategyClass }}">
+        {{- range $attribute := .Values.Master.AuthorizationStrategyAttributes }}
+          <{{- $attribute.name }}>{{- $attribute.value }}</{{- $attribute.name }}>
+        {{- end}}
+      </authorizationStrategy>
+{{- if .Values.Master.SecurityRealm }}
+    {{ .Values.Master.SecurityRealm | indent 6 }}
+{{- else if  .Values.Master.SecurityRealmClass }}
+      <securityRealm class="{{ .Values.Master.SecurityRealmClass }}">
+        {{- range $attribute := .Values.Master.SecurityRealmAttributes }}
+          <{{- $attribute.name }}>{{- $attribute.value }}</{{- $attribute.name }}>
+        {{- end}}
+      </securityRealm>
+{{- else }}
+      <securityRealm class="hudson.security.LegacySecurityRealm"/>
+{{- end }}
+      <disableRememberMe>false</disableRememberMe>
+      <projectNamingStrategy class="jenkins.model.ProjectNamingStrategy$DefaultProjectNamingStrategy"/>
+      <workspaceDir>${JENKINS_HOME}/workspace/${ITEM_FULLNAME}</workspaceDir>
+      <buildsDir>${ITEM_ROOTDIR}/builds</buildsDir>
+      <markupFormatter class="hudson.markup.EscapedMarkupFormatter"/>
+      <jdks/>
+      <viewsTabBar class="hudson.views.DefaultViewsTabBar"/>
+      <myViewsTabBar class="hudson.views.DefaultMyViewsTabBar"/>
+      <clouds>
+        <org.csanchez.jenkins.plugins.kubernetes.KubernetesCloud plugin="kubernetes@0.11">
+          <name>kubernetes</name>
+          <templates>
+          </templates>
+{{- $agent := .Values.Agent -}}
+          <serverUrl>{{ $agent.KubernetesServerURL | default "https://kubernetes.default" }}</serverUrl>
+          <skipTlsVerify>false</skipTlsVerify>
+          <namespace>{{ .Release.Namespace }}</namespace>
+          <jenkinsUrl>http://{{ template "jenkins.fullname" . }}:{{.Values.Master.ServicePort}}{{ default "" .Values.Master.JenkinsUriPrefix }}</jenkinsUrl>
+          <jenkinsTunnel>{{ template "jenkins.fullname" . }}-agent:50000</jenkinsTunnel>
+          <containerCap>{{ .Values.Agent.ContainerCap }}</containerCap>
+          <retentionTimeout>5</retentionTimeout>
+          <connectTimeout>0</connectTimeout>
+          <readTimeout>0</readTimeout>
+        </org.csanchez.jenkins.plugins.kubernetes.KubernetesCloud>
+      </clouds>
+      <quietPeriod>5</quietPeriod>
+      <scmCheckoutRetryCount>0</scmCheckoutRetryCount>
+      <views>
+        <hudson.model.AllView>
+          <owner class="hudson" reference="../../.."/>
+          <name>All</name>
+          <filterExecutors>false</filterExecutors>
+          <filterQueue>false</filterQueue>
+          <properties class="hudson.model.View$PropertyList"/>
+        </hudson.model.AllView>
+      </views>
+      <primaryView>All</primaryView>
+      <slaveAgentPort>50000</slaveAgentPort>
+      <label></label>
+      <nodeProperties/>
+      <globalNodeProperties>
+        <hudson.slaves.EnvironmentVariablesNodeProperty>
+          <envVars serialization="custom">
+            <unserializable-parents/>
+            <tree-map>
+              <default>
+                <comparator class="hudson.util.CaseInsensitiveComparator"/>
+              </default>
+              <int>{{ .Values.Servers.Global.NumEnvVars }}</int>
+{{- range $ekey, $eval := .Values.Servers.Global.EnvVars }}
+              <string>{{ $ekey }}</string>
+              <string>{{ $eval }}</string>
+{{- end }}
+            </tree-map>
+          </envVars>
+        </hudson.slaves.EnvironmentVariablesNodeProperty>
+      </globalNodeProperties>
+      <noUsageStatistics>true</noUsageStatistics>
+    </hudson>
+  org.jenkinsci.plugins.github_branch_source.GitHubConfiguration.xml: |-
+    <?xml version='1.1' encoding='UTF-8'?>
+    <org.jenkinsci.plugins.github__branch__source.GitHubConfiguration plugin="github-branch-source@2.3.2">
+      <endpoints>
+{{- range $pkey, $pval := .Values.Servers.GHE }}
+        <org.jenkinsci.plugins.github__branch__source.Endpoint>
+          <name>{{ $pval.Name }}</name>
+          <apiUri>{{ $pval.Url }}</apiUri>
+        </org.jenkinsci.plugins.github__branch__source.Endpoint>
+{{- end }}
+      </endpoints>
+    </org.jenkinsci.plugins.github__branch__source.GitHubConfiguration>
+  com.dabsquared.gitlabjenkins.connection.GitLabConnectionConfig.xml: |-
+    <?xml version='1.1' encoding='UTF-8'?>
+    <com.dabsquared.gitlabjenkins.connection.GitLabConnectionConfig plugin="gitlab-plugin@1.5.5">
+      <useAuthenticatedEndpoint>true</useAuthenticatedEndpoint>
+      <connections>
+{{- range $pkey, $pval := .Values.Servers.GitLab }}
+        <com.dabsquared.gitlabjenkins.connection.GitLabConnection>
+          <name>{{ $pval.Name }}</name>
+          <url>{{ $pval.Url }}</url>
+          <apiTokenId>{{ $pval.Credential }}</apiTokenId>
+          <clientBuilder class="com.dabsquared.gitlabjenkins.gitlab.api.impl.AutodetectGitLabClientBuilder">
+            <id>autodetect</id>
+            <ordinal>0</ordinal>
+          </clientBuilder>
+          <ignoreCertificateErrors>false</ignoreCertificateErrors>
+          <connectionTimeout>10</connectionTimeout>
+          <readTimeout>10</readTimeout>
+        </com.dabsquared.gitlabjenkins.connection.GitLabConnection>
+{{- end }}
+      </connections>
+    </com.dabsquared.gitlabjenkins.connection.GitLabConnectionConfig>
+  com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketEndpointConfiguration.xml: |-
+    <?xml version='1.1' encoding='UTF-8'?>
+    <com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketEndpointConfiguration plugin="cloudbees-bitbucket-branch-source@2.2.10">
+      <endpoints>
+{{- range $pkey, $pval := .Values.Servers.BitbucketCloud }}
+        <com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketCloudEndpoint>
+          <manageHooks>true</manageHooks>
+          <credentialsId>{{ $pval.Credential }}</credentialsId>
+          <displayName>{{ $pval.Name }}</displayName>
+          <serverUrl>{{ $pval.Url }}</serverUrl>
+        </com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketCloudEndpoint>
+{{- end }}
+{{- range $pkey, $pval := .Values.Servers.BitbucketServer }}
+        <com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketServerEndpoint>
+          <manageHooks>true</manageHooks>
+          <credentialsId>{{ $pval.Credential }}</credentialsId>
+          <displayName>{{ $pval.Name }}</displayName>
+          <serverUrl>{{ $pval.Url }}</serverUrl>
+        </com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketServerEndpoint>
+{{- end }}
+      </endpoints>
+    </com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketEndpointConfiguration>
+  org.jenkinsci.plugin.gitea.servers.GiteaServers.xml: |-
+    <?xml version='1.1' encoding='UTF-8'?>
+    <org.jenkinsci.plugin.gitea.servers.GiteaServers plugin="gitea@1.0.5">
+      <servers>
+{{- range $pkey, $pval := .Values.Servers.Gitea }}
+        <org.jenkinsci.plugin.gitea.servers.GiteaServer>
+          <displayName>{{ $pval.Name }}</displayName>
+          <serverUrl>{{ $pval.Url }}</serverUrl>
+          <manageHooks>true</manageHooks>
+          <credentialsId>{{ $pval.Credential }}</credentialsId>
+        </org.jenkinsci.plugin.gitea.servers.GiteaServer>
+{{- end }}
+      </servers>
+    </org.jenkinsci.plugin.gitea.servers.GiteaServers>
+{{- if .Values.Master.ScriptApproval }}
+  scriptapproval.xml: |-
+    <?xml version='1.0' encoding='UTF-8'?>
+    <scriptApproval plugin="script-security@1.27">
+      <approvedScriptHashes/>
+      <approvedSignatures>
+{{- range $key, $val := .Values.Master.ScriptApproval }}
+        <string>{{ $val }}</string>
+{{- end }}
+      </approvedSignatures>
+      <aclApprovedSignatures/>
+      <approvedClasspathEntries/>
+      <pendingScripts/>
+      <pendingSignatures/>
+      <pendingClasspathEntries/>
+    </scriptApproval>
+{{- end }}
+  apply_config.sh: |-
+{{- if .Values.Master.Overwrite.Plugins }}
+    rm -rf /var/jenkins_home/plugins
+{{- end }}
+    mkdir -p /usr/share/jenkins/ref/secrets/;
+    echo "false" > /usr/share/jenkins/ref/secrets/slave-to-master-security-kill-switch;
+    rm -rf /var/jenkins_home/com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketEndpointConfiguration.xml
+    ln -s /var/jenkins_config/com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketEndpointConfiguration.xml /var/jenkins_home/com.cloudbees.jenkins.plugins.bitbucket.endpoints.BitbucketEndpointConfiguration.xml
+    rm -rf /var/jenkins_home/org.jenkinsci.plugin.gitea.servers.GiteaServers.xml
+    ln -s /var/jenkins_config/org.jenkinsci.plugin.gitea.servers.GiteaServers.xml /var/jenkins_home/org.jenkinsci.plugin.gitea.servers.GiteaServers.xml
+    rm -rf /var/jenkins_home/com.dabsquared.gitlabjenkins.connection.GitLabConnectionConfig.xml
+    ln -s /var/jenkins_config/com.dabsquared.gitlabjenkins.connection.GitLabConnectionConfig.xml /var/jenkins_home/com.dabsquared.gitlabjenkins.connection.GitLabConnectionConfig.xml
+    rm -rf /var/jenkins_home/org.jenkinsci.plugins.github_branch_source.GitHubConfiguration.xml
+    ln -s /var/jenkins_config/org.jenkinsci.plugins.github_branch_source.GitHubConfiguration.xml /var/jenkins_home/org.jenkinsci.plugins.github_branch_source.GitHubConfiguration.xml
+{{- if .Values.Master.ScriptApproval }}
+    cp -n /var/jenkins_config/scriptapproval.xml /var/jenkins_home/scriptApproval.xml;
+{{- end }}
+{{- if .Values.Master.InitScripts }}
+    mkdir -p /var/jenkins_home/init.groovy.d/;
+    cp -n /var/jenkins_config/*.groovy /var/jenkins_home/init.groovy.d/
+{{- end }}
+{{- if .Values.Master.AdditionalConfig }}
+{{- range $key, $val := .Values.Master.AdditionalConfig }}
+    cp /var/jenkins_config/{{- $key }} /var/jenkins_home;
+{{- end }}
+{{- end }}
+{{- range $key, $val := .Values.Master.InitScripts }}
+  init{{ $key }}.groovy: |-
+{{ $val | indent 4 }}
+{{- end }}
+  plugins.txt: |-
+{{- if .Values.Master.InstallPlugins }}
+{{- range $index, $val := .Values.Master.InstallPlugins }}
+{{ $val | indent 4 }}
+{{- end }}
+{{- end }}
+{{- if .Values.Master.AdditionalConfig }}
+{{ toYaml .Values.Master.AdditionalConfig | indent 2 }}
+{{- end }}
+{{- end -}}
